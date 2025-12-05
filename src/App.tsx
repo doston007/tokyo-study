@@ -122,8 +122,8 @@ function App() {
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 flex items-center justify-center p-6">
         <div className="text-center">
           <RefreshCw className="w-12 h-12 text-emerald-400 animate-spin mx-auto mb-4" />
-          <p className="text-white text-lg font-semibold">Сотув маълумотлари юклаў...</p>
-          <p className="text-slate-400 mt-2">Google Sheets дан юклаў</p>
+          <p className="text-white text-lg font-semibold">Сотув маълумотлари юкланмоқда...</p>
+          <p className="text-slate-400 mt-2">Google Sheets дан юкланмоқда</p>
         </div>
       </div>
     );

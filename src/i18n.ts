@@ -40,9 +40,9 @@ export const uzbekTranslations = {
   // KPI Cards
   totalSales: "Жами Сотув",
   activeEmployees: "Фаол Ходимлар",
-  avgSalesPerEmployee: "О'рта Сотув/Ходим",
-  inAllBranches: "Барча филиаллар буйича",
-  perEmployeeInPeriod: "Доира ичида бир ходим устида",
+  avgSalesPerEmployee: "Ўртача сотув",
+  inAllBranches: "Барча филиаллар бўйича",
+  perEmployeeInPeriod: "Kиши бошига сотув сони",
   
   // Leaderboard
   employeeLeaderboard: "Ходимлар Рейтинги",
