@@ -1,7 +1,6 @@
 /**
  * Google Sheets integration service
  * Fetches and parses sales data from Google Sheets
- * Uses Youware Backend as a proxy to bypass CORS restrictions
  */
 
 export interface RawSheetRow {
@@ -17,11 +16,24 @@ export interface SalesEmployee {
   month: number;
   sixMonths: number;
   year: number;
+  amount6mln: number; // Sharnoma turi (6млн)
+  invoice: number; // Invoice $ (Инвоис)
 }
 
-const SHEET_ID = "1E_yqnR4cXBMwwdzDd34ImsC7G4npHgAFWBAwMBQRsho";
-const SHEET_GID = "1714172454";
-const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
+// Region to Google Sheet mapping
+interface RegionSheet {
+  id: string;
+  gid: string;
+  name: string;
+}
+
+const REGION_SHEETS: RegionSheet[] = [
+  { id: "15nrHKcxhYVThPxWJA7voKiy19DLphha-J6pOTj3pjm0", gid: "0", name: "Andijon" },
+  { id: "1xnmpOF6SiPFvvFIT5tzQ1NmbJ_qIdqtqpPjYLfu8UQ0", gid: "0", name: "Samarqand" },
+  { id: "1Qb1n2EJVMBVp2oY5pTCB46sUz73CnilFJCRElMlekow", gid: "0", name: "Namangan" },
+  { id: "1lh58pWmpqk3V85yeOSLCSwbr6KNoGu1rSkjuER97UTA", gid: "0", name: "Farg'ona" },
+  { id: "1w9KGElIf5lMnH3SuyjTZMEzxAgcxhVcZziNiHygfkWI", gid: "0", name: "Qarshi" },
+];
 
 // Cache the data
 let cachedData: SalesEmployee[] | null = null;
@@ -29,7 +41,7 @@ let lastFetchTime = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Fetch data from Google Sheets CSV export
+ * Fetch data from Google Sheets CSV export for all regions
  * Attempts direct fetch first, then uses backend proxy
  */
 export async function fetchGoogleSheetData(): Promise<SalesEmployee[]> {
@@ -39,122 +51,146 @@ export async function fetchGoogleSheetData(): Promise<SalesEmployee[]> {
     return cachedData;
   }
 
-  try {
-    // Try to use Youware Backend as a proxy
-    // The backend can make cross-origin requests without CORS issues
-    const backendUrl = `/api/proxy/sheets?id=${SHEET_ID}&gid=${SHEET_GID}`;
-    
+  const allEmployees: SalesEmployee[] = [];
+  const errors: string[] = [];
+
+  // Fetch data from all region sheets
+  for (const regionSheet of REGION_SHEETS) {
     try {
-      const response = await fetch(backendUrl);
-      if (response.ok) {
-        const csvText = await response.text();
-        const data = parseSheetData(csvText);
-        cachedData = data;
-        lastFetchTime = now;
-        return data;
+      const sheetUrl = `https://docs.google.com/spreadsheets/d/${regionSheet.id}/export?format=csv&gid=${regionSheet.gid}`;
+      console.log(`Attempting to fetch data for ${regionSheet.name} from ${sheetUrl}`);
+      
+      let csvText: string | null = null;
+      let fetchError: string | null = null;
+      
+      try {
+        console.log(`Fetching data for ${regionSheet.name}`);
+        const response = await fetch(sheetUrl);
+        console.log(`Response status for ${regionSheet.name}: ${response.status}`);
+        
+        if (response.ok) {
+          csvText = await response.text();
+          console.log(`Success for ${regionSheet.name}, received ${csvText.length} characters`);
+        } else {
+          // Try alternative URL format with /pub
+          try {
+            const altUrl = `https://docs.google.com/spreadsheets/d/${regionSheet.id}/pub?output=csv`;
+            console.log(`Trying alternative URL format for ${regionSheet.name}: ${altUrl}`);
+            const altResponse = await fetch(altUrl);
+            if (altResponse.ok) {
+              csvText = await altResponse.text();
+              console.log(`Alternative URL success for ${regionSheet.name}, received ${csvText.length} characters`);
+            } else {
+              const errorText = await response.text().catch(() => response.statusText);
+              fetchError = `Both direct fetch (${response.status}) and alternative URL (${altResponse.status}) failed`;
+              console.warn(`All fetch methods failed for ${regionSheet.name}: ${fetchError}`);
+            }
+          } catch (altErr) {
+            const errorText = await response.text().catch(() => response.statusText);
+            fetchError = `Direct fetch returned ${response.status}: ${errorText}`;
+            console.warn(`Direct fetch failed for ${regionSheet.name}: ${fetchError}`);
+          }
+        }
+      } catch (fetchErr) {
+        fetchError = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        console.error(`Fetch error for ${regionSheet.name}:`, fetchError);
       }
-    } catch (backendError) {
-      console.warn("Backend proxy not available, attempting direct fetch", backendError);
-    }
 
-    // Fallback: Try direct fetch without custom headers
-    const response = await fetch(SHEET_URL);
-    if (response.ok) {
-      const csvText = await response.text();
-      const data = parseSheetData(csvText);
-      cachedData = data;
-      lastFetchTime = now;
-      return data;
+      if (csvText && csvText.trim().length > 0) {
+        console.log(`Parsing data for ${regionSheet.name}...`);
+        const regionData = parseSheetData(csvText, regionSheet.name);
+        console.log(`Parsed ${regionData.length} employees from ${regionSheet.name}`);
+        allEmployees.push(...regionData);
+      } else {
+        const errorMsg = `No CSV data received for ${regionSheet.name}. ${fetchError || 'Unknown error'}`;
+        errors.push(errorMsg);
+        console.error(errorMsg);
+      }
+    } catch (error) {
+      const errorMsg = `Error fetching data for ${regionSheet.name}: ${error instanceof Error ? error.message : String(error)}`;
+      errors.push(errorMsg);
+      console.error(errorMsg, error);
+      // Continue with other regions even if one fails
     }
-
-    throw new Error(`Failed to fetch sheet: ${response.statusText}`);
-  } catch (error) {
-    console.error("Error fetching Google Sheets data:", error);
-    
-    // If all fails, throw error with helpful message
-    if (error instanceof Error) {
-      throw new Error(
-        `Unable to fetch Google Sheets data. ${error.message}\n\n` +
-        `Note: Your Google Sheet may need to be publicly accessible or you may need to ` +
-        `enable the Youware Backend integration to bypass CORS restrictions.`
-      );
-    }
-    throw error;
   }
+
+  if (allEmployees.length === 0) {
+    const errorDetails = errors.length > 0 ? `\n\nErrors:\n${errors.join('\n')}` : '';
+    throw new Error(
+      `No data could be fetched from any region sheets.${errorDetails}\n\n` +
+      `Please ensure:\n` +
+      `1. All Google Sheets are set to "Anyone with the link can view"\n` +
+      `2. Check browser console for detailed error messages\n` +
+      `3. Verify sheet IDs are correct in the code`
+    );
+  }
+
+  cachedData = allEmployees;
+  lastFetchTime = now;
+  return allEmployees;
 }
 
 /**
  * Parse CSV data and aggregate by employee name and branch
  */
-function parseSheetData(csvText: string): SalesEmployee[] {
+function parseSheetData(csvText: string, regionName: string): SalesEmployee[] {
   const lines = csvText.trim().split("\n");
 
-  if (lines.length < 2) {
-    throw new Error("Sheet data is empty or invalid");
+  if (lines.length < 3) {
+    console.warn(`Not enough lines in CSV for ${regionName}: ${lines.length} (need at least 3: empty line, headers, data)`);
+    return []; // Return empty array instead of throwing error
   }
 
-  // Parse headers (Uzbek language headers)
-  const headers = lines[0].split(",").map((h) => h.trim());
+  // Parse headers from second line (index 1)
+  const headers = lines[1].split(",").map((h) => h.trim());
+  console.log(`Headers for ${regionName} (from line 2):`, headers.slice(0, 10)); // Log first 10 headers
 
-  // Find relevant column indices - look for Uzbek column headers
+  // Find relevant column indices - new structure
   const nameIdx = findColumnIndex(headers, [
-    "Hisobot kirituvchi",
-    "FISh",
-    "mas'ul shaxs",
+    "Menejerining ismi",
+    "Menejerining ismi",
+    "Manager name",
+    "Ism /familiya",
+    "Ism / familiya",
+    "Ism/familiya",
     "Name",
-    "person"
+    "FISh"
   ]);
   
-  const branchIdx = findColumnIndex(headers, [
-    "Filialingizni",
-    "Filial",
-    "Branch",
-    "branch"
-  ]);
+  // Branch is determined by region name
+  const branch = regionName;
   
   const dateIdx = findColumnIndex(headers, [
-    "Bugungi kunni",
-    "Timestamp",
+    "Shartnoma sanasi",
+    "Shartnoma sanasi",
     "Date",
     "date",
-    "Data"
+    "Timestamp",
+    "Bugungi kunni"
   ]);
   
-  const contractIdx = findColumnIndex(headers, [
-    "Shartnoma",
-    "contract",
-    "Contract"
+  // New columns: Sharnoma turi (6млн) and Invoice $ (Инвоис)
+  const sharnomaTuriIdx = findColumnIndex(headers, [
+    "Sharnoma turi",
+    "Shartnoma turi",
+    "Sharnoma turi",
+    "Contract type",
+    "Shartnoma turi",
+    "Shartnoma"
   ]);
   
-  const invoice3000Idx = findColumnIndex(headers, [
-    "$3000",
-    "3000",
-    "invoice 3000"
+  const invoiceIdx = findColumnIndex(headers, [
+    "Invoice $",
+    "Invoice",
+    "invoice",
+    "Invoice $"
   ]);
-  
-  const invoice1400Idx = findColumnIndex(headers, [
-    "$1400",
-    "1400",
-    "invoice 1400"
-  ]);
-  
-  const invoice900Idx = findColumnIndex(headers, [
-    "$900",
-    "900",
-    "invoice 900"
-  ]);
-  
-  const invoice500Idx = findColumnIndex(headers, [
-    "$500",
-    "500",
-    "invoice 500"
-  ]);
-  
-  const payment6mlnIdx = findColumnIndex(headers, [
-    "6 MLN",
-    "6mln",
-    "payment"
-  ]);
+
+  console.log(`Column indices for ${regionName}: nameIdx=${nameIdx}, dateIdx=${dateIdx}, sharnomaTuriIdx=${sharnomaTuriIdx}, invoiceIdx=${invoiceIdx}`);
+
+  if (nameIdx === -1) {
+    console.error(`Could not find name column in ${regionName}. Available headers:`, headers);
+  }
 
   // Map to aggregate employee data
   const employeeMap = new Map<string, SalesEmployee>();
@@ -176,35 +212,41 @@ function parseSheetData(csvText: string): SalesEmployee[] {
   const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
   const yearAgoStr = yearAgo.toISOString().split("T")[0];
 
-  // Parse data rows
-  for (let i = 1; i < lines.length; i++) {
+  // Parse data rows (skip first empty line and header row, start from line 3)
+  for (let i = 2; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
+
+    // Skip TOTAL rows
+    if (line.toUpperCase().includes("TOTAL")) continue;
 
     // Parse CSV line
     const fields = parseCSVLine(line);
 
-    if (fields.length < Math.max(nameIdx, branchIdx, dateIdx) + 1) {
+    // Check if we have minimum required fields
+    if (nameIdx === -1 || fields.length < Math.max(nameIdx, dateIdx) + 1) {
       continue;
     }
 
-    const name = fields[nameIdx]?.trim() || "Unknown";
-    const branch = fields[branchIdx]?.trim() || "Unknown";
+    const name = fields[nameIdx]?.trim() || "";
     const dateStr = fields[dateIdx]?.trim() || "";
 
     // Skip invalid entries
-    if (!name || name === "0" || name.length < 2) continue;
+    if (!name || name === "0" || name.length < 2 || name.toLowerCase() === "total") continue;
 
-    // Parse amounts - handle empty or invalid values
-    const contracts = safeParseInt(fields[contractIdx]);
-    const invoice3000 = safeParseInt(fields[invoice3000Idx]);
-    const invoice1400 = safeParseInt(fields[invoice1400Idx]);
-    const invoice900 = safeParseInt(fields[invoice900Idx]);
-    const invoice500 = safeParseInt(fields[invoice500Idx]);
-    const payment6mln = safeParseInt(fields[payment6mlnIdx]);
+    // Parse amounts - new structure
+    // Sharnoma turi (6млн) - convert to 1 if >= 6000000, else 0
+    const sharnomaTuriStr = fields[sharnomaTuriIdx]?.trim() || "0";
+    const sharnomaTuriValue = safeParseInt(sharnomaTuriStr);
+    const amount6mln = sharnomaTuriValue >= 6000000 ? 1 : 0;
+    
+    // Invoice $ (Инвоис)
+    const invoiceStr = fields[invoiceIdx]?.trim() || "0";
+    const invoice = safeParseInt(invoiceStr);
 
-    // Calculate sale amount
-    const saleAmount = contracts + payment6mln + invoice3000 + invoice1400 + invoice900 + invoice500;
+    // Calculate sale amount (sum of both columns)
+    // For 6млн, we use the original value for sale amount calculation, but count only >= 6000000
+    const saleAmount = sharnomaTuriValue + invoice;
 
     // Skip if no sales
     if (saleAmount <= 0) continue;
@@ -225,6 +267,8 @@ function parseSheetData(csvText: string): SalesEmployee[] {
         month: 0,
         sixMonths: 0,
         year: 0,
+        amount6mln: 0,
+        invoice: 0,
       });
     }
 
@@ -247,13 +291,15 @@ function parseSheetData(csvText: string): SalesEmployee[] {
     if (dateForComparison >= yearAgoStr) {
       employee.year += saleAmount;
     }
+
+    // Also aggregate the new fields
+    // amount6mln is already 0 or 1 based on >= 6000000 threshold
+    employee.amount6mln += amount6mln;
+    employee.invoice += invoice;
   }
 
   const result = Array.from(employeeMap.values());
-  if (result.length === 0) {
-    throw new Error("No valid employee data found in sheet");
-  }
-
+  console.log(`Parsed ${result.length} employees from ${regionName}`);
   return result;
 }
 
@@ -269,11 +315,14 @@ function findColumnIndex(headers: string[], searchTerms: string[]): number {
 }
 
 /**
- * Safe integer parsing
+ * Safe integer parsing - handles numbers with spaces and other separators
  */
 function safeParseInt(value?: string): number {
   if (!value) return 0;
-  const parsed = parseInt(value, 10);
+  // Remove all spaces and non-digit characters except minus sign
+  const cleaned = value.toString().replace(/\s+/g, "").replace(/[^\d-]/g, "");
+  if (!cleaned) return 0;
+  const parsed = parseInt(cleaned, 10);
   return isNaN(parsed) ? 0 : parsed;
 }
 
@@ -319,6 +368,13 @@ function parseDate(dateStr: string): Date | null {
   // Try parsing as ISO date
   if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
     return new Date(dateStr);
+  }
+
+  // Try parsing as DD.MM.YYYY (common format in Uzbek sheets)
+  const dotMatch = dateStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+  if (dotMatch) {
+    const [, day, month, year] = dotMatch;
+    return new Date(`${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`);
   }
 
   // Try parsing as MM/DD/YYYY or DD/MM/YYYY

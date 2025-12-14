@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { TrendingUp, Award, Users, DollarSign, ChevronDown, RefreshCw, Calendar, Download } from "lucide-react";
 import { fetchGoogleSheetData, SalesEmployee } from "./api/googleSheets";
 import { uzbekTranslations } from "./i18n";
@@ -81,12 +81,14 @@ function App() {
     return Math.round(monthlyAvg * daysDiff);
   };
 
-  // Sort by selected timeframe
+  // Sort by invoice first, then by 6млн if invoice is equal
   const sortedData = [...filteredData].sort((a, b) => {
-    if (selectedTimeframe === "custom") {
-      return getCustomRangeSales(b) - getCustomRangeSales(a);
+    // First sort by invoice (descending)
+    if (b.invoice !== a.invoice) {
+      return b.invoice - a.invoice;
     }
-    return b[selectedTimeframe] - a[selectedTimeframe];
+    // If invoices are equal, sort by 6млн (descending)
+    return b.amount6mln - a.amount6mln;
   });
 
   // Calculate metrics
@@ -444,16 +446,15 @@ function App() {
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.rank}</th>
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.name}</th>
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.branch}</th>
-                  <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    {uzbekTranslations.sales} ({timeframes.find(t => t.key === selectedTimeframe)?.label})
-                  </th>
+                  <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">6млн</th>
+                  <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Инвоис</th>
                   <th className="px-8 py-4 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.status}</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-8 py-8 text-center text-slate-400">
+                    <td colSpan={6} className="px-8 py-8 text-center text-slate-400">
                       {uzbekTranslations.noData}
                     </td>
                   </tr>
@@ -485,10 +486,13 @@ function App() {
                           <p className="text-slate-400">{employee.branch}</p>
                         </td>
                         <td className="px-8 py-5 text-right">
-                          <p className="font-bold text-white text-lg">
-                            {selectedTimeframe === "custom" 
-                              ? formatCurrency(getCustomRangeSales(employee))
-                              : formatCurrency(employee[selectedTimeframe])}
+                          <p className="font-semibold text-emerald-400 text-base">
+                            {formatCurrency(employee.amount6mln)}
+                          </p>
+                        </td>
+                        <td className="px-8 py-5 text-right">
+                          <p className="font-semibold text-blue-400 text-base">
+                            {formatCurrency(employee.invoice)}
                           </p>
                         </td>
                         <td className="px-8 py-5 text-center">
