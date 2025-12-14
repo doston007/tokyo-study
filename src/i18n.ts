@@ -39,7 +39,7 @@ export const uzbekTranslations = {
   
   // KPI Cards
   totalSales: "Жами Сотув",
-  activeEmployees: "Фаол Ходимлар",
+  activeEmployees: "Ходимлар",
   avgSalesPerEmployee: "Ўртача сотув",
   inAllBranches: "Барча филиаллар бўйича",
   perEmployeeInPeriod: "Kиши бошига сотув сони",

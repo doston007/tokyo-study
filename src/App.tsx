@@ -27,7 +27,6 @@ function App() {
   const [customDateStart, setCustomDateStart] = useState("");
   const [customDateEnd, setCustomDateEnd] = useState("");
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<"фаол" | "нофаол" | "барча">("барча");
   const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Load data on mount
@@ -110,7 +109,19 @@ function App() {
   }
   const activeEmployees = sortedData.length;
   const averageSalesPerEmployee = activeEmployees > 0 ? Math.round(totalSales / activeEmployees) : 0;
-  const topPerformer = sortedData[0];
+  
+  // Find top performer based on selected timeframe
+  const topPerformer = sortedData.length > 0 
+    ? sortedData.reduce((top, current) => {
+        const topSales = selectedTimeframe === "custom" 
+          ? getCustomRangeSales(top)
+          : top[selectedTimeframe];
+        const currentSales = selectedTimeframe === "custom"
+          ? getCustomRangeSales(current)
+          : current[selectedTimeframe];
+        return currentSales > topSales ? current : top;
+      })
+    : null;
 
   // Format currency (showing just the number without $ symbol)
   // Манба: Google Sheets CSV файлидан парс қилинган рақамлар
@@ -215,7 +226,7 @@ function App() {
         </div>
 
         {/* Controls Section */}
-        <div className="grid md:grid-cols-3 gap-6 mb-10">
+        <div className="grid md:grid-cols-2 gap-6 mb-10">
           {/* Time Period Buttons */}
           <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
             <label className="block text-sm font-bold text-slate-300 mb-4 uppercase tracking-wider">
@@ -264,44 +275,6 @@ function App() {
             </div>
           </div>
 
-          {/* Status Filter Button */}
-          <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-xl p-6">
-            <label className="block text-sm font-bold text-slate-300 mb-4 uppercase tracking-wider">
-              {uzbekTranslations.status}
-            </label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setStatusFilter("фаол")}
-                className={`flex-1 px-3 py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 ${
-                  statusFilter === "фаол"
-                    ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/50"
-                    : "bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 hover:text-white border border-slate-600"
-                }`}
-              >
-                Фаол
-              </button>
-              <button
-                onClick={() => setStatusFilter("нофаол")}
-                className={`flex-1 px-3 py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 ${
-                  statusFilter === "нофаол"
-                    ? "bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/50"
-                    : "bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 hover:text-white border border-slate-600"
-                }`}
-              >
-                Нофаол
-              </button>
-              <button
-                onClick={() => setStatusFilter("барча")}
-                className={`flex-1 px-3 py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 ${
-                  statusFilter === "барча"
-                    ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg shadow-blue-500/50"
-                    : "bg-slate-700/50 text-slate-300 hover:bg-slate-600/50 hover:text-white border border-slate-600"
-                }`}
-              >
-                Барча
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Custom Date Range Picker */}
@@ -448,13 +421,12 @@ function App() {
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.branch}</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">6млн</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Инвоис</th>
-                  <th className="px-8 py-4 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.status}</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-8 py-8 text-center text-slate-400">
+                    <td colSpan={5} className="px-8 py-8 text-center text-slate-400">
                       {uzbekTranslations.noData}
                     </td>
                   </tr>
@@ -494,19 +466,6 @@ function App() {
                           <p className="font-semibold text-blue-400 text-base">
                             {formatCurrency(employee.invoice)}
                           </p>
-                        </td>
-                        <td className="px-8 py-5 text-center">
-                          <span
-                            className={`inline-block px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider ${
-                              isTopPerformer
-                                ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white"
-                                : isTopThree
-                                ? "bg-blue-500/30 text-blue-300 border border-blue-500/50"
-                                : "bg-slate-700/50 text-slate-300"
-                            }`}
-                          >
-                            {isTopPerformer ? "🏆 " + uzbekTranslations.top : isTopThree ? "⭐ " + uzbekTranslations.top3 : uzbekTranslations.active}
-                          </span>
                         </td>
                       </tr>
                     );
