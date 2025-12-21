@@ -18,22 +18,12 @@ export interface SalesEmployee {
   year: number;
   amount6mln: number; // Sharnoma turi (6млн)
   invoice: number; // Invoice $ (Инвоис)
+  invoice3000: number; // $3000 (Инвоис 3000)
 }
 
-// Region to Google Sheet mapping
-interface RegionSheet {
-  id: string;
-  gid: string;
-  name: string;
-}
-
-const REGION_SHEETS: RegionSheet[] = [
-  { id: "15nrHKcxhYVThPxWJA7voKiy19DLphha-J6pOTj3pjm0", gid: "0", name: "Andijon" },
-  { id: "1xnmpOF6SiPFvvFIT5tzQ1NmbJ_qIdqtqpPjYLfu8UQ0", gid: "0", name: "Samarqand" },
-  { id: "1Qb1n2EJVMBVp2oY5pTCB46sUz73CnilFJCRElMlekow", gid: "0", name: "Namangan" },
-  { id: "1lh58pWmpqk3V85yeOSLCSwbr6KNoGu1rSkjuER97UTA", gid: "0", name: "Farg'ona" },
-  { id: "1w9KGElIf5lMnH3SuyjTZMEzxAgcxhVcZziNiHygfkWI", gid: "0", name: "Qarshi" },
-];
+// Single Google Sheet source
+const SHEET_ID = "10opxikq7eMlBTvlByRe2nwgGqYf-Xj6HYjg7cUdBQM4";
+const SHEET_GID = "2019879851";
 
 // Cache the data
 let cachedData: SalesEmployee[] | null = null;
@@ -41,8 +31,8 @@ let lastFetchTime = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Fetch data from Google Sheets CSV export for all regions
- * Attempts direct fetch first, then uses backend proxy
+ * Fetch data from single Google Sheets CSV export
+ * Regions are extracted from the "Filial" column
  */
 export async function fetchGoogleSheetData(): Promise<SalesEmployee[]> {
   // Return cached data if still valid
@@ -51,145 +41,186 @@ export async function fetchGoogleSheetData(): Promise<SalesEmployee[]> {
     return cachedData;
   }
 
-  const allEmployees: SalesEmployee[] = [];
-  const errors: string[] = [];
+  let csvText: string | null = null;
+  let fetchError: string | null = null;
 
-  // Fetch data from all region sheets
-  for (const regionSheet of REGION_SHEETS) {
+  // Try to fetch from the single sheet
+  try {
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${SHEET_GID}`;
+    console.log(`Attempting to fetch data from ${sheetUrl}`);
+    
     try {
-      const sheetUrl = `https://docs.google.com/spreadsheets/d/${regionSheet.id}/export?format=csv&gid=${regionSheet.gid}`;
-      console.log(`Attempting to fetch data for ${regionSheet.name} from ${sheetUrl}`);
+      const response = await fetch(sheetUrl);
+      console.log(`Response status: ${response.status}`);
       
-      let csvText: string | null = null;
-      let fetchError: string | null = null;
-      
-      try {
-        console.log(`Fetching data for ${regionSheet.name}`);
-        const response = await fetch(sheetUrl);
-        console.log(`Response status for ${regionSheet.name}: ${response.status}`);
-        
-        if (response.ok) {
-          csvText = await response.text();
-          console.log(`Success for ${regionSheet.name}, received ${csvText.length} characters`);
-        } else {
-          // Try alternative URL format with /pub
-          try {
-            const altUrl = `https://docs.google.com/spreadsheets/d/${regionSheet.id}/pub?output=csv`;
-            console.log(`Trying alternative URL format for ${regionSheet.name}: ${altUrl}`);
-            const altResponse = await fetch(altUrl);
-            if (altResponse.ok) {
-              csvText = await altResponse.text();
-              console.log(`Alternative URL success for ${regionSheet.name}, received ${csvText.length} characters`);
-            } else {
-              const errorText = await response.text().catch(() => response.statusText);
-              fetchError = `Both direct fetch (${response.status}) and alternative URL (${altResponse.status}) failed`;
-              console.warn(`All fetch methods failed for ${regionSheet.name}: ${fetchError}`);
-            }
-          } catch (altErr) {
-            const errorText = await response.text().catch(() => response.statusText);
-            fetchError = `Direct fetch returned ${response.status}: ${errorText}`;
-            console.warn(`Direct fetch failed for ${regionSheet.name}: ${fetchError}`);
-          }
-        }
-      } catch (fetchErr) {
-        fetchError = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        console.error(`Fetch error for ${regionSheet.name}:`, fetchError);
-      }
-
-      if (csvText && csvText.trim().length > 0) {
-        console.log(`Parsing data for ${regionSheet.name}...`);
-        const regionData = parseSheetData(csvText, regionSheet.name);
-        console.log(`Parsed ${regionData.length} employees from ${regionSheet.name}`);
-        allEmployees.push(...regionData);
+      if (response.ok) {
+        csvText = await response.text();
+        console.log(`Success, received ${csvText.length} characters`);
       } else {
-        const errorMsg = `No CSV data received for ${regionSheet.name}. ${fetchError || 'Unknown error'}`;
-        errors.push(errorMsg);
-        console.error(errorMsg);
+        // Try alternative URL format with /pub
+        try {
+          const altUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/pub?output=csv&gid=${SHEET_GID}`;
+          console.log(`Trying alternative URL format: ${altUrl}`);
+          const altResponse = await fetch(altUrl);
+          if (altResponse.ok) {
+            csvText = await altResponse.text();
+            console.log(`Alternative URL success, received ${csvText.length} characters`);
+          } else {
+            fetchError = `Both direct fetch (${response.status}) and alternative URL (${altResponse.status}) failed`;
+            console.warn(`All fetch methods failed: ${fetchError}`);
+          }
+        } catch (altErr) {
+          fetchError = `Direct fetch returned ${response.status}`;
+          console.warn(`Direct fetch failed: ${fetchError}`);
+        }
       }
-    } catch (error) {
-      const errorMsg = `Error fetching data for ${regionSheet.name}: ${error instanceof Error ? error.message : String(error)}`;
-      errors.push(errorMsg);
-      console.error(errorMsg, error);
-      // Continue with other regions even if one fails
+    } catch (fetchErr) {
+      fetchError = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      console.error(`Fetch error:`, fetchError);
     }
-  }
 
-  if (allEmployees.length === 0) {
-    const errorDetails = errors.length > 0 ? `\n\nErrors:\n${errors.join('\n')}` : '';
-    throw new Error(
-      `No data could be fetched from any region sheets.${errorDetails}\n\n` +
-      `Please ensure:\n` +
-      `1. All Google Sheets are set to "Anyone with the link can view"\n` +
-      `2. Check browser console for detailed error messages\n` +
-      `3. Verify sheet IDs are correct in the code`
-    );
+    if (csvText && csvText.trim().length > 0) {
+      console.log(`Parsing data...`);
+      const allEmployees = parseSheetData(csvText);
+      console.log(`Parsed ${allEmployees.length} employees`);
+      
+      cachedData = allEmployees;
+      lastFetchTime = now;
+      return allEmployees;
+    } else {
+      throw new Error(
+        `No CSV data received. ${fetchError || 'Unknown error'}\n\n` +
+        `Please ensure:\n` +
+        `1. Google Sheet is set to "Anyone with the link can view"\n` +
+        `2. Check browser console for detailed error messages\n` +
+        `3. Verify sheet ID and GID are correct in the code`
+      );
+    }
+  } catch (error) {
+    const errorMsg = `Error fetching data: ${error instanceof Error ? error.message : String(error)}`;
+    console.error(errorMsg, error);
+    throw new Error(errorMsg);
   }
-
-  cachedData = allEmployees;
-  lastFetchTime = now;
-  return allEmployees;
 }
 
 /**
  * Parse CSV data and aggregate by employee name and branch
+ * Regions are extracted from the "Filial" column
  */
-function parseSheetData(csvText: string, regionName: string): SalesEmployee[] {
+function parseSheetData(csvText: string): SalesEmployee[] {
   const lines = csvText.trim().split("\n");
 
-  if (lines.length < 3) {
-    console.warn(`Not enough lines in CSV for ${regionName}: ${lines.length} (need at least 3: empty line, headers, data)`);
-    return []; // Return empty array instead of throwing error
+  if (lines.length < 2) {
+    console.warn(`Not enough lines in CSV: ${lines.length} (need at least 2: headers, data)`);
+    return [];
   }
 
-  // Parse headers from second line (index 1)
-  const headers = lines[1].split(",").map((h) => h.trim());
-  console.log(`Headers for ${regionName} (from line 2):`, headers.slice(0, 10)); // Log first 10 headers
+  // Parse headers from first line (index 0)
+  const headers = lines[0].split(",").map((h) => h.trim());
+  console.log(`Headers (from line 1):`, headers.slice(0, 15)); // Log first 15 headers
 
-  // Find relevant column indices - new structure
-  const nameIdx = findColumnIndex(headers, [
-    "Menejerining ismi",
+  // Find relevant column indices
+  // Column C: Filial (Branch/Region)
+  const filialIdx = findColumnIndex(headers, [
+    "Filial",
+    "filial",
+    "Филиал",
+    "Branch",
+    "branch"
+  ]);
+  
+  // Column B: To'lov sanasi (Payment date) - приоритет на "To'lov sanasi"
+  const dateIdx = findColumnIndex(headers, [
+    "To'lov sanasi",
+    "To'lov sanasi",
+    "Payment date",
+    "date",
+    "Date"
+  ]);
+  
+  // Column D: 6 mln (приоритет на "6 mln")
+  const amount6mlnIdx = findColumnIndex(headers, [
+    "6 mln",
+    "6mln",
+    "6млн"
+  ]);
+  
+  // Column E: Invoice
+  const invoiceIdx = findColumnIndex(headers, [
+    "Invoice",
+    "invoice",
+    "Invoice $",
+    "Инвоис"
+  ]);
+  
+  // Column with $3000
+  const invoice3000Idx = findColumnIndex(headers, [
+    "$3000",
+    "3000",
+    "3000$",
+    "Yuqori bonusli $3000"
+  ]);
+
+  // Find employee name columns (F-K: Xodim F. I. Sh for different regions)
+  // We'll need to find which column has the employee name based on the Filial value
+  const employeeNameIndices: { [key: string]: number } = {};
+  const regionColumnMap: { [key: string]: string } = {
+    "Toshkent": "Xodim F. I. Sh Toshkent",
+    "Samarqand": "Xodim F. I. Sh Samarqand",
+    "Andijon": "Xodim F. I. Sh Andijon",
+    "Namangan": "Xodim F. I. Sh Namangan",
+    "Farg'ona": "Xodim F. I. Sh Farg'ona",
+    "Qarshi": "Xodim F. I. Sh Qarshi"
+  };
+
+  // Find all employee name columns
+  for (const [region, columnName] of Object.entries(regionColumnMap)) {
+    const idx = findColumnIndex(headers, [columnName, columnName.toLowerCase()]);
+    if (idx !== -1) {
+      employeeNameIndices[region] = idx;
+    }
+  }
+
+  // Also try generic employee name columns
+  const genericNameIdx = findColumnIndex(headers, [
     "Menejerining ismi",
     "Manager name",
     "Ism /familiya",
     "Ism / familiya",
     "Ism/familiya",
     "Name",
-    "FISh"
-  ]);
-  
-  // Branch is determined by region name
-  const branch = regionName;
-  
-  const dateIdx = findColumnIndex(headers, [
-    "Shartnoma sanasi",
-    "Shartnoma sanasi",
-    "Date",
-    "date",
-    "Timestamp",
-    "Bugungi kunni"
-  ]);
-  
-  // New columns: Sharnoma turi (6млн) and Invoice $ (Инвоис)
-  const sharnomaTuriIdx = findColumnIndex(headers, [
-    "Sharnoma turi",
-    "Shartnoma turi",
-    "Sharnoma turi",
-    "Contract type",
-    "Shartnoma turi",
-    "Shartnoma"
-  ]);
-  
-  const invoiceIdx = findColumnIndex(headers, [
-    "Invoice $",
-    "Invoice",
-    "invoice",
-    "Invoice $"
+    "FISh",
+    "Xodim"
   ]);
 
-  console.log(`Column indices for ${regionName}: nameIdx=${nameIdx}, dateIdx=${dateIdx}, sharnomaTuriIdx=${sharnomaTuriIdx}, invoiceIdx=${invoiceIdx}`);
+  console.log(`Column indices: filialIdx=${filialIdx}, dateIdx=${dateIdx}, amount6mlnIdx=${amount6mlnIdx}, invoiceIdx=${invoiceIdx}, invoice3000Idx=${invoice3000Idx}`);
+  console.log(`Employee name column indices:`, employeeNameIndices);
+  console.log(`Generic name index:`, genericNameIdx);
+  console.log(`All headers:`, headers);
 
-  if (nameIdx === -1) {
-    console.error(`Could not find name column in ${regionName}. Available headers:`, headers);
+  if (filialIdx === -1) {
+    console.error(`Could not find Filial column. Available headers:`, headers);
+  }
+  
+  if (dateIdx === -1) {
+    console.warn(`Could not find "To'lov sanasi" column. Available headers:`, headers);
+    console.warn(`Trying to find similar date columns...`);
+    headers.forEach((h, idx) => {
+      if (h.toLowerCase().includes("sanasi") || h.toLowerCase().includes("date") || h.toLowerCase().includes("sana")) {
+        console.warn(`Found similar date column at index ${idx}: "${h}"`);
+      }
+    });
+  }
+  
+  if (amount6mlnIdx === -1) {
+    console.warn(`Could not find "6 mln" column. Available headers:`, headers);
+    console.warn(`Trying to find similar columns...`);
+    // Попробуем найти похожие колонки
+    headers.forEach((h, idx) => {
+      if (h.toLowerCase().includes("6") || h.toLowerCase().includes("mln") || h.toLowerCase().includes("млн")) {
+        console.warn(`Found similar column at index ${idx}: "${h}"`);
+      }
+    });
   }
 
   // Map to aggregate employee data
@@ -212,8 +243,8 @@ function parseSheetData(csvText: string, regionName: string): SalesEmployee[] {
   const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
   const yearAgoStr = yearAgo.toISOString().split("T")[0];
 
-  // Parse data rows (skip first empty line and header row, start from line 3)
-  for (let i = 2; i < lines.length; i++) {
+  // Parse data rows (skip header row, start from line 1)
+  for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
 
@@ -223,36 +254,69 @@ function parseSheetData(csvText: string, regionName: string): SalesEmployee[] {
     // Parse CSV line
     const fields = parseCSVLine(line);
 
-    // Check if we have minimum required fields
-    if (nameIdx === -1 || fields.length < Math.max(nameIdx, dateIdx) + 1) {
-      continue;
-    }
+    // Get Filial (branch/region) from column C
+    const branch = filialIdx !== -1 ? fields[filialIdx]?.trim() || "" : "";
+    if (!branch) continue;
 
-    const name = fields[nameIdx]?.trim() || "";
-    const dateStr = fields[dateIdx]?.trim() || "";
+    // Get employee name - try region-specific column first, then generic
+    let name = "";
+    if (employeeNameIndices[branch] !== undefined) {
+      name = fields[employeeNameIndices[branch]]?.trim() || "";
+    }
+    if (!name && genericNameIdx !== -1) {
+      name = fields[genericNameIdx]?.trim() || "";
+    }
+    
+    // If still no name, try to find any non-empty employee name column
+    if (!name) {
+      for (const idx of Object.values(employeeNameIndices)) {
+        const potentialName = fields[idx]?.trim() || "";
+        if (potentialName && potentialName !== "0" && potentialName.length > 2) {
+          name = potentialName;
+          break;
+        }
+      }
+    }
 
     // Skip invalid entries
     if (!name || name === "0" || name.length < 2 || name.toLowerCase() === "total") continue;
 
-    // Parse amounts - new structure
-    // Sharnoma turi (6млн) - convert to 1 if >= 6000000, else 0
-    const sharnomaTuriStr = fields[sharnomaTuriIdx]?.trim() || "0";
-    const sharnomaTuriValue = safeParseInt(sharnomaTuriStr);
-    const amount6mln = sharnomaTuriValue >= 6000000 ? 1 : 0;
+    // Get date from column B (To'lov sanasi)
+    const dateStr = dateIdx !== -1 ? fields[dateIdx]?.trim() || "" : "";
     
-    // Invoice $ (Инвоис)
-    const invoiceStr = fields[invoiceIdx]?.trim() || "0";
-    const invoice = safeParseInt(invoiceStr);
+    // Debug logging for first few rows
+    if (i <= 3 && dateIdx !== -1) {
+      console.log(`Row ${i}: dateStr="${dateStr}", column index=${dateIdx}, parsed date:`, dateStr ? parseDate(dateStr) : "null");
+    }
 
-    // Calculate sale amount (sum of both columns)
-    // For 6млн, we use the original value for sale amount calculation, but count only >= 6000000
-    const saleAmount = sharnomaTuriValue + invoice;
+    // Parse amounts
+    // Column D: 6 mln - это количество контрактов (например, 1), а не сумма
+    const amount6mlnStr = amount6mlnIdx !== -1 ? fields[amount6mlnIdx]?.trim() || "0" : "0";
+    const amount6mln = safeParseInt(amount6mlnStr); // Количество контрактов на 6 млн
+    
+    // Debug logging for first few rows
+    if (i <= 3 && amount6mlnIdx !== -1) {
+      console.log(`Row ${i}: amount6mlnStr="${amount6mlnStr}", parsed=${amount6mln}, column index=${amount6mlnIdx}`);
+    }
+    
+    // Column E: Invoice
+    const invoiceStr = invoiceIdx !== -1 ? fields[invoiceIdx]?.trim() || "0" : "0";
+    const invoice = safeParseInt(invoiceStr);
+    
+    // Column with $3000
+    const invoice3000Str = invoice3000Idx !== -1 ? fields[invoice3000Idx]?.trim() || "0" : "0";
+    const invoice3000 = safeParseInt(invoice3000Str);
+
+    // Calculate sale amount
+    // Для расчета суммы продаж: если есть контракт на 6 млн, считаем как 6000000, плюс invoice
+    const amount6mlnValue = amount6mln > 0 ? 6000000 * amount6mln : 0;
+    const saleAmount = amount6mlnValue + invoice;
 
     // Skip if no sales
     if (saleAmount <= 0) continue;
 
     // Parse date
-    const parsedDate = parseDate(dateStr);
+    const parsedDate = dateStr ? parseDate(dateStr) : null;
     if (!parsedDate) continue;
 
     const key = `${name.toLowerCase()}|${branch}`;
@@ -269,6 +333,7 @@ function parseSheetData(csvText: string, regionName: string): SalesEmployee[] {
         year: 0,
         amount6mln: 0,
         invoice: 0,
+        invoice3000: 0,
       });
     }
 
@@ -293,13 +358,13 @@ function parseSheetData(csvText: string, regionName: string): SalesEmployee[] {
     }
 
     // Also aggregate the new fields
-    // amount6mln is already 0 or 1 based on >= 6000000 threshold
     employee.amount6mln += amount6mln;
     employee.invoice += invoice;
+    employee.invoice3000 += invoice3000;
   }
 
   const result = Array.from(employeeMap.values());
-  console.log(`Parsed ${result.length} employees from ${regionName}`);
+  console.log(`Parsed ${result.length} employees from all regions`);
   return result;
 }
 

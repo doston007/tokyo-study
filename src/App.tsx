@@ -80,13 +80,33 @@ function App() {
     return Math.round(monthlyAvg * daysDiff);
   };
 
-  // Sort by invoice first, then by 6млн if invoice is equal
+  // Sort by: (invoice + $3000) first, then by $3000 if no invoice, then by 6млн
   const sortedData = [...filteredData].sort((a, b) => {
-    // First sort by invoice (descending)
-    if (b.invoice !== a.invoice) {
-      return b.invoice - a.invoice;
+    // Calculate combined value: invoice + $3000
+    const aCombined = a.invoice + a.invoice3000;
+    const bCombined = b.invoice + b.invoice3000;
+    
+    // First sort by combined (invoice + $3000) descending
+    if (bCombined !== aCombined) {
+      return bCombined - aCombined;
     }
-    // If invoices are equal, sort by 6млн (descending)
+    
+    // If combined values are equal, check if invoice is zero
+    // If no invoice, sort by $3000
+    if (a.invoice === 0 && b.invoice === 0) {
+      // Both have no invoice, sort by $3000
+      if (b.invoice3000 !== a.invoice3000) {
+        return b.invoice3000 - a.invoice3000;
+      }
+      // If $3000 also equal, sort by 6млн
+      return b.amount6mln - a.amount6mln;
+    }
+    
+    // If one has invoice and other doesn't, the one with invoice should be higher
+    if (a.invoice === 0) return 1; // a goes down
+    if (b.invoice === 0) return -1; // b goes down
+    
+    // Both have invoice, but combined is equal, sort by 6млн
     return b.amount6mln - a.amount6mln;
   });
 
@@ -108,11 +128,73 @@ function App() {
     totalSales = sortedData.reduce((sum, emp) => sum + emp[selectedTimeframe], 0);
   }
   const activeEmployees = sortedData.length;
-  const averageSalesPerEmployee = activeEmployees > 0 ? Math.round(totalSales / activeEmployees) : 0;
   
-  // Find top performer based on selected timeframe
-  const topPerformer = sortedData.length > 0 
-    ? sortedData.reduce((top, current) => {
+  // Calculate totals by sales type for selected timeframe
+  // Since amount6mln, invoice, invoice3000 are aggregated for all time,
+  // we need to calculate proportionally based on the selected timeframe
+  const calculateSalesByType = () => {
+    let totalInvoice = 0;
+    let total6mln = 0;
+    let total3000 = 0;
+    
+    sortedData.forEach((emp) => {
+      // Get total sales for selected timeframe
+      const timeframeSales = selectedTimeframe === "custom" 
+        ? getCustomRangeSales(emp)
+        : emp[selectedTimeframe];
+      
+      // Calculate total sales for all time (sum of all components)
+      // For proportion calculation, we need to include 6млн as amount (6000000 * count)
+      const totalAllTimeSales = (emp.amount6mln * 6000000) + emp.invoice + emp.invoice3000;
+      
+      if (totalAllTimeSales > 0) {
+        // Calculate proportion
+        const proportion = timeframeSales / totalAllTimeSales;
+        
+        // Apply proportion to each type
+        totalInvoice += emp.invoice * proportion;
+        // For 6млн, use count directly (not multiplied by 6000000) but apply proportion
+        total6mln += emp.amount6mln * proportion;
+        total3000 += emp.invoice3000 * proportion;
+      } else {
+        // If no sales at all, check if there are any values
+        if (emp.invoice > 0) totalInvoice += emp.invoice;
+        // For 6млн, use count directly (not multiplied by 6000000)
+        if (emp.amount6mln > 0) total6mln += emp.amount6mln;
+        if (emp.invoice3000 > 0) total3000 += emp.invoice3000;
+      }
+    });
+    
+    return { totalInvoice, total6mln, total3000 };
+  };
+  
+  const { totalInvoice, total6mln, total3000 } = calculateSalesByType();
+  
+  // Find top branch based on selected timeframe
+  // Group employees by branch and calculate total sales per branch
+  const branchSales = new Map<string, { total: number; employees: SalesEmployee[] }>();
+  
+  sortedData.forEach((emp) => {
+    const sales = selectedTimeframe === "custom" 
+      ? getCustomRangeSales(emp)
+      : emp[selectedTimeframe];
+    
+    if (!branchSales.has(emp.branch)) {
+      branchSales.set(emp.branch, { total: 0, employees: [] });
+    }
+    
+    const branchData = branchSales.get(emp.branch)!;
+    branchData.total += sales;
+    branchData.employees.push(emp);
+  });
+  
+  // Find top branch
+  let topBranch: { branch: string; total: number; topEmployee: SalesEmployee | null } | null = null;
+  
+  branchSales.forEach((data, branch) => {
+    if (!topBranch || data.total > topBranch.total) {
+      // Find top employee in this branch
+      const topEmployee = data.employees.reduce((top, current) => {
         const topSales = selectedTimeframe === "custom" 
           ? getCustomRangeSales(top)
           : top[selectedTimeframe];
@@ -120,8 +202,15 @@ function App() {
           ? getCustomRangeSales(current)
           : current[selectedTimeframe];
         return currentSales > topSales ? current : top;
-      })
-    : null;
+      });
+      
+      topBranch = {
+        branch,
+        total: data.total,
+        topEmployee
+      };
+    }
+  });
 
   // Format currency (showing just the number without $ symbol)
   // Манба: Google Sheets CSV файлидан парс қилинган рақамлар
@@ -326,42 +415,32 @@ function App() {
           </div>
         )}
 
-        {/* Top Performer Section */}
-        {topPerformer && (
+        {/* Top Branch Section */}
+        {topBranch && topBranch.topEmployee && (
           <div className="mb-10 bg-gradient-to-br from-emerald-900/30 via-teal-900/20 to-slate-900/30 border-2 border-emerald-500/40 rounded-2xl p-8 lg:p-10 backdrop-blur-sm hover:border-emerald-500/60 transition-all duration-300">
             <div className="flex items-center gap-3 mb-8">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
                 <Award className="w-6 h-6 text-white" />
               </div>
               <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-                {uzbekTranslations.topPerformer}
+                Энг яхши филиал
               </h2>
             </div>
-            <div className="grid md:grid-cols-3 gap-8">
+            <div className="grid md:grid-cols-2 gap-8">
               <div>
-                <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">{uzbekTranslations.name}</p>
-                <p className="text-4xl font-bold text-white">{topPerformer.name}</p>
+                <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">Филиал:</p>
+                <p className="text-4xl font-bold text-emerald-400">{topBranch.branch}</p>
               </div>
               <div>
-                <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">{uzbekTranslations.branch}</p>
-                <p className="text-3xl font-bold text-emerald-400">{topPerformer.branch}</p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">
-                  {uzbekTranslations.sales} ({timeframes.find(t => t.key === selectedTimeframe)?.label})
-                </p>
-                <p className="text-4xl font-bold bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-                  {selectedTimeframe === "custom" 
-                    ? formatCurrency(getCustomRangeSales(topPerformer))
-                    : formatCurrency(topPerformer[selectedTimeframe])}
-                </p>
+                <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">Менеджер:</p>
+                <p className="text-4xl font-bold text-white">{topBranch.topEmployee.name}</p>
               </div>
             </div>
           </div>
         )}
 
         {/* KPI Cards */}
-        <div className="grid md:grid-cols-3 gap-6 mb-10">
+        <div className="grid md:grid-cols-2 gap-6 mb-10">
           {/* Total Sales Card */}
           <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-8 hover:border-slate-600 hover:shadow-2xl hover:shadow-slate-900/50 transition-all duration-300 group">
             <div className="flex items-center justify-between mb-6">
@@ -370,8 +449,21 @@ function App() {
                 <DollarSign className="w-6 h-6 text-emerald-400" />
               </div>
             </div>
-            <p className="text-4xl font-bold text-white mb-2">{formatCurrency(totalSales)}</p>
-            <p className="text-sm text-slate-500">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-slate-500 mb-1 uppercase tracking-wider">Инвоис</p>
+                <p className="text-2xl font-bold text-blue-400">{formatCurrency(totalInvoice)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 mb-1 uppercase tracking-wider">6млн</p>
+                <p className="text-2xl font-bold text-emerald-400">{formatCurrency(total6mln)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 mb-1 uppercase tracking-wider">3000$</p>
+                <p className="text-2xl font-bold text-purple-400">{formatCurrency(total3000)}</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-500 mt-4 pt-4 border-t border-slate-700">
               {selectedTimeframe === "custom" && customDateStart && customDateEnd
                 ? `${customDateStart} дан ${customDateEnd} гача`
                 : timeframes.find(t => t.key === selectedTimeframe)?.label}
@@ -391,20 +483,6 @@ function App() {
               {selectedBranch === "Барча Филиаллар" ? uzbekTranslations.inAllBranches : uzbekTranslations.branch + ": " + selectedBranch}
             </p>
           </div>
-
-          {/* Average Sales Card */}
-          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-8 hover:border-slate-600 hover:shadow-2xl hover:shadow-slate-900/50 transition-all duration-300 group">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.avgSalesPerEmployee}</h3>
-              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-violet-500/20 to-purple-500/20 flex items-center justify-center group-hover:from-violet-500/40 group-hover:to-purple-500/40 transition-all">
-                <TrendingUp className="w-6 h-6 text-violet-400" />
-              </div>
-            </div>
-            <p className="text-4xl font-bold text-white mb-2">{formatCurrency(averageSalesPerEmployee)}</p>
-            <p className="text-sm text-slate-500">
-              {uzbekTranslations.perEmployeeInPeriod}
-            </p>
-          </div>
         </div>
 
         {/* Leaderboard Table */}
@@ -421,12 +499,13 @@ function App() {
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.branch}</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">6млн</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Инвоис</th>
+                  <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">$3000</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-8 py-8 text-center text-slate-400">
+                    <td colSpan={6} className="px-8 py-8 text-center text-slate-400">
                       {uzbekTranslations.noData}
                     </td>
                   </tr>
@@ -465,6 +544,11 @@ function App() {
                         <td className="px-8 py-5 text-right">
                           <p className="font-semibold text-blue-400 text-base">
                             {formatCurrency(employee.invoice)}
+                          </p>
+                        </td>
+                        <td className="px-8 py-5 text-right">
+                          <p className="font-semibold text-purple-400 text-base">
+                            {formatCurrency(employee.invoice3000)}
                           </p>
                         </td>
                       </tr>
