@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Award, Users, DollarSign, ChevronDown, RefreshCw, Calendar, Download } from "lucide-react";
+import { Award, Users, ChevronDown, RefreshCw, Calendar, Download } from "lucide-react";
 import { fetchGoogleSheetData, SalesEmployee, fetchBranchManagers } from "./api/googleSheets";
 import { uzbekTranslations } from "./i18n";
 import { exportToCSV, exportToJSON } from "./utils/exportData";
@@ -127,48 +127,7 @@ function App() {
   });
 
   // Calculate metrics
-  // МАНБА: Барча рақамлар googleSheets.ts файлидан ўқилади
-  // parseSheetData() функцияси Google Sheets CSV дан маълумотларни парс қилади
-  // Рақамлар қўйидаги Google Sheets устунларидан ўқилади:
-  // - "Shartnoma soni" (Шартномалар сони)
-  // - "Yuqori bonusli $3000" (3000 сўм)
-  // - "Bugungi $1400" (1400 сўм)
-  // - "Bugungi $900" (900 сўм)
-  // - "Bugungi $500" (500 сўм)
-  // - "6 MLN to'lovlar" (6 миллион сўм)
-  // saleAmount = contracts + payment6mln + invoice3000 + invoice1400 + invoice900 + invoice500
   const activeEmployees = sortedData.length;
-  
-  // Calculate totals by sales type for selected timeframe
-  const calculateSalesByType = () => {
-    let totalInvoice = 0;
-    let total6mln = 0;
-    let total3000 = 0;
-    
-    sortedData.forEach((emp) => {
-      if (selectedTimeframe === "custom") {
-        // For custom range, use all-time values (approximation)
-        totalInvoice += emp.invoice;
-        total6mln += emp.amount6mln;
-        total3000 += emp.invoice3000;
-      } else {
-        // Use breakdown for the selected timeframe
-        const breakdownKey = `${selectedTimeframe}Breakdown` as keyof typeof emp;
-        const breakdown = emp[breakdownKey];
-        
-        if (breakdown && typeof breakdown === 'object' && 'amount6mln' in breakdown) {
-          const bd = breakdown as { amount6mln: number; invoice: number; invoice3000: number };
-          totalInvoice += bd.invoice;
-          total6mln += bd.amount6mln;
-          total3000 += bd.invoice3000;
-        }
-      }
-    });
-    
-    return { totalInvoice, total6mln, total3000 };
-  };
-  
-  const { totalInvoice, total6mln, total3000 } = calculateSalesByType();
   
   // Find top branch based on selected timeframe
   // Group employees by branch and calculate total sales per branch
@@ -482,36 +441,7 @@ function App() {
         </div>
 
         {/* KPI Cards */}
-        <div className="grid md:grid-cols-2 gap-6 mb-10">
-          {/* Total Sales Card */}
-          <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-8 hover:border-slate-600 hover:shadow-2xl hover:shadow-slate-900/50 transition-all duration-300 group">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.totalSales}</h3>
-              <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center group-hover:from-emerald-500/40 group-hover:to-teal-500/40 transition-all">
-                <DollarSign className="w-6 h-6 text-emerald-400" />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-slate-500 mb-1 uppercase tracking-wider">Инвоис</p>
-                <p className="text-2xl font-bold text-blue-400">{formatCurrency(totalInvoice)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500 mb-1 uppercase tracking-wider">6млн</p>
-                <p className="text-2xl font-bold text-emerald-400">{formatCurrency(total6mln)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500 mb-1 uppercase tracking-wider">3000$</p>
-                <p className="text-2xl font-bold text-purple-400">{formatCurrency(total3000)}</p>
-              </div>
-            </div>
-            <p className="text-sm text-slate-500 mt-4 pt-4 border-t border-slate-700">
-              {selectedTimeframe === "custom" && customDateStart && customDateEnd
-                ? `${customDateStart} дан ${customDateEnd} гача`
-                : timeframes.find(t => t.key === selectedTimeframe)?.label}
-            </p>
-          </div>
-
+        <div className="mb-10">
           {/* Active Employees Card */}
           <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur border border-slate-700 rounded-xl p-8 hover:border-slate-600 hover:shadow-2xl hover:shadow-slate-900/50 transition-all duration-300 group">
             <div className="flex items-center justify-between mb-6">
