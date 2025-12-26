@@ -3,6 +3,8 @@ import { TrendingUp, Award, Users, DollarSign, ChevronDown, RefreshCw, Calendar,
 import { fetchGoogleSheetData, SalesEmployee } from "./api/googleSheets";
 import { uzbekTranslations } from "./i18n";
 import { exportToCSV, exportToJSON } from "./utils/exportData";
+// Import logo - add your logo file to src/assets/logo.png
+import logoImage from "./assets/logo.png";
 
 interface TimeFrame {
   label: string;
@@ -80,34 +82,39 @@ function App() {
     return Math.round(monthlyAvg * daysDiff);
   };
 
-  // Sort by: (invoice + $3000) first, then by $3000 if no invoice, then by 6млн
-  const sortedData = [...filteredData].sort((a, b) => {
-    // Calculate combined value: invoice + $3000
-    const aCombined = a.invoice + a.invoice3000;
-    const bCombined = b.invoice + b.invoice3000;
-    
-    // First sort by combined (invoice + $3000) descending
-    if (bCombined !== aCombined) {
-      return bCombined - aCombined;
-    }
-    
-    // If combined values are equal, check if invoice is zero
-    // If no invoice, sort by $3000
-    if (a.invoice === 0 && b.invoice === 0) {
-      // Both have no invoice, sort by $3000
-      if (b.invoice3000 !== a.invoice3000) {
-        return b.invoice3000 - a.invoice3000;
+  // Filter by timeframe - only show employees with sales in selected period
+  const timeframeFilteredData = filteredData.filter((emp) => {
+    const sales = selectedTimeframe === "custom" 
+      ? getCustomRangeSales(emp)
+      : emp[selectedTimeframe];
+    return sales > 0;
+  });
+
+  // Sort by invoice first, then by 6mln
+  const sortedData = [...timeframeFilteredData].sort((a, b) => {
+    // Get breakdown for selected timeframe
+    const getBreakdownForSort = (emp: SalesEmployee) => {
+      if (selectedTimeframe === "custom") {
+        return { invoice: emp.invoice, amount6mln: emp.amount6mln };
       }
-      // If $3000 also equal, sort by 6млн
-      return b.amount6mln - a.amount6mln;
+      const breakdownKey = `${selectedTimeframe}Breakdown` as keyof typeof emp;
+      const breakdown = emp[breakdownKey];
+      if (breakdown && typeof breakdown === 'object' && 'invoice' in breakdown) {
+        return breakdown as { amount6mln: number; invoice: number; invoice3000: number };
+      }
+      return { invoice: emp.invoice, amount6mln: emp.amount6mln };
+    };
+    
+    const aBreakdown = getBreakdownForSort(a);
+    const bBreakdown = getBreakdownForSort(b);
+    
+    // First sort by invoice (descending)
+    if (bBreakdown.invoice !== aBreakdown.invoice) {
+      return bBreakdown.invoice - aBreakdown.invoice;
     }
     
-    // If one has invoice and other doesn't, the one with invoice should be higher
-    if (a.invoice === 0) return 1; // a goes down
-    if (b.invoice === 0) return -1; // b goes down
-    
-    // Both have invoice, but combined is equal, sort by 6млн
-    return b.amount6mln - a.amount6mln;
+    // If invoice is equal, sort by 6mln (descending)
+    return bBreakdown.amount6mln - aBreakdown.amount6mln;
   });
 
   // Calculate metrics
@@ -130,38 +137,28 @@ function App() {
   const activeEmployees = sortedData.length;
   
   // Calculate totals by sales type for selected timeframe
-  // Since amount6mln, invoice, invoice3000 are aggregated for all time,
-  // we need to calculate proportionally based on the selected timeframe
   const calculateSalesByType = () => {
     let totalInvoice = 0;
     let total6mln = 0;
     let total3000 = 0;
     
     sortedData.forEach((emp) => {
-      // Get total sales for selected timeframe
-      const timeframeSales = selectedTimeframe === "custom" 
-        ? getCustomRangeSales(emp)
-        : emp[selectedTimeframe];
-      
-      // Calculate total sales for all time (sum of all components)
-      // For proportion calculation, we need to include 6млн as amount (6000000 * count)
-      const totalAllTimeSales = (emp.amount6mln * 6000000) + emp.invoice + emp.invoice3000;
-      
-      if (totalAllTimeSales > 0) {
-        // Calculate proportion
-        const proportion = timeframeSales / totalAllTimeSales;
-        
-        // Apply proportion to each type
-        totalInvoice += emp.invoice * proportion;
-        // For 6млн, use count directly (not multiplied by 6000000) but apply proportion
-        total6mln += emp.amount6mln * proportion;
-        total3000 += emp.invoice3000 * proportion;
+      if (selectedTimeframe === "custom") {
+        // For custom range, use all-time values (approximation)
+        totalInvoice += emp.invoice;
+        total6mln += emp.amount6mln;
+        total3000 += emp.invoice3000;
       } else {
-        // If no sales at all, check if there are any values
-        if (emp.invoice > 0) totalInvoice += emp.invoice;
-        // For 6млн, use count directly (not multiplied by 6000000)
-        if (emp.amount6mln > 0) total6mln += emp.amount6mln;
-        if (emp.invoice3000 > 0) total3000 += emp.invoice3000;
+        // Use breakdown for the selected timeframe
+        const breakdownKey = `${selectedTimeframe}Breakdown` as keyof typeof emp;
+        const breakdown = emp[breakdownKey];
+        
+        if (breakdown && typeof breakdown === 'object' && 'amount6mln' in breakdown) {
+          const bd = breakdown as { amount6mln: number; invoice: number; invoice3000: number };
+          totalInvoice += bd.invoice;
+          total6mln += bd.amount6mln;
+          total3000 += bd.invoice3000;
+        }
       }
     });
     
@@ -253,12 +250,19 @@ function App() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-12">
-          <div className="inline-block mb-4 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full">
-            <p className="text-xs font-bold text-white uppercase tracking-widest">{uzbekTranslations.performanceHub}</p>
+          <div className="flex items-center gap-5 mb-3">
+            <div className="relative group">
+              <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-xl blur-xl group-hover:blur-2xl transition-all duration-300"></div>
+              <img 
+                src={logoImage} 
+                alt="StudyTokyo Logo" 
+                className="h-12 w-auto relative rounded-lg shadow-lg group-hover:scale-105 transition-transform duration-300"
+              />
+            </div>
+            <h1 className="text-5xl lg:text-6xl font-bold text-white leading-tight">
+              {uzbekTranslations.salesPerformance}
+            </h1>
           </div>
-          <h1 className="text-5xl lg:text-6xl font-bold text-white mb-3 leading-tight">
-            {uzbekTranslations.salesPerformance}
-          </h1>
           <div className="flex items-center justify-between gap-4">
             <p className="text-lg text-slate-400 max-w-2xl">
               {uzbekTranslations.realtimeRankings}
@@ -497,6 +501,7 @@ function App() {
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.rank}</th>
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.name}</th>
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.branch}</th>
+                  <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Тўлов санаси</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">6млн</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Инвоис</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">$3000</th>
@@ -505,7 +510,7 @@ function App() {
               <tbody>
                 {sortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-8 py-8 text-center text-slate-400">
+                    <td colSpan={7} className="px-8 py-8 text-center text-slate-400">
                       {uzbekTranslations.noData}
                     </td>
                   </tr>
@@ -513,6 +518,43 @@ function App() {
                   sortedData.map((employee, index) => {
                     const isTopPerformer = index === 0;
                     const isTopThree = index < 3;
+                    
+                    // Format date as DD.MM.YYYY
+                    const formatDate = (dateStr: string) => {
+                      const date = new Date(dateStr);
+                      const day = String(date.getDate()).padStart(2, '0');
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const year = date.getFullYear();
+                      return `${day}.${month}.${year}`;
+                    };
+
+                    // Get breakdown for selected timeframe
+                    const getBreakdown = () => {
+                      if (selectedTimeframe === "custom") {
+                        // For custom range, use all-time values (approximation)
+                        return {
+                          amount6mln: employee.amount6mln,
+                          invoice: employee.invoice,
+                          invoice3000: employee.invoice3000
+                        };
+                      }
+                      
+                      const breakdownKey = `${selectedTimeframe}Breakdown` as keyof typeof employee;
+                      const breakdown = employee[breakdownKey];
+                      
+                      if (breakdown && typeof breakdown === 'object' && 'amount6mln' in breakdown) {
+                        return breakdown as { amount6mln: number; invoice: number; invoice3000: number };
+                      }
+                      
+                      // Fallback to all-time values
+                      return {
+                        amount6mln: employee.amount6mln,
+                        invoice: employee.invoice,
+                        invoice3000: employee.invoice3000
+                      };
+                    };
+                    
+                    const breakdown = getBreakdown();
 
                     return (
                       <tr
@@ -536,19 +578,22 @@ function App() {
                         <td className="px-8 py-5">
                           <p className="text-slate-400">{employee.branch}</p>
                         </td>
+                        <td className="px-8 py-5">
+                          <p className="text-slate-300">{formatDate(employee.date)}</p>
+                        </td>
                         <td className="px-8 py-5 text-right">
                           <p className="font-semibold text-emerald-400 text-base">
-                            {formatCurrency(employee.amount6mln)}
+                            {formatCurrency(breakdown.amount6mln)}
                           </p>
                         </td>
                         <td className="px-8 py-5 text-right">
                           <p className="font-semibold text-blue-400 text-base">
-                            {formatCurrency(employee.invoice)}
+                            {formatCurrency(breakdown.invoice)}
                           </p>
                         </td>
                         <td className="px-8 py-5 text-right">
                           <p className="font-semibold text-purple-400 text-base">
-                            {formatCurrency(employee.invoice3000)}
+                            {formatCurrency(breakdown.invoice3000)}
                           </p>
                         </td>
                       </tr>

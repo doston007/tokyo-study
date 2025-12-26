@@ -11,14 +11,21 @@ export interface SalesEmployee {
   id: string;
   name: string;
   branch: string;
+  date: string; // To'lov sanasi (Payment date)
   today: number;
   week: number;
   month: number;
   sixMonths: number;
   year: number;
-  amount6mln: number; // Sharnoma turi (6млн)
-  invoice: number; // Invoice $ (Инвоис)
-  invoice3000: number; // $3000 (Инвоис 3000)
+  amount6mln: number; // Sharnoma turi (6млн) - всего за все время
+  invoice: number; // Invoice $ (Инвоис) - всего за все время
+  invoice3000: number; // $3000 (Инвоис 3000) - всего за все время
+  // Detailed breakdown by period
+  todayBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
+  weekBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
+  monthBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
+  sixMonthsBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
+  yearBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
 }
 
 // Single Google Sheet source
@@ -231,17 +238,35 @@ function parseSheetData(csvText: string): SalesEmployee[] {
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split("T")[0];
   
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const weekAgoStr = weekAgo.toISOString().split("T")[0];
+  // Start of this week (Monday)
+  const startOfWeek = new Date(today);
+  const dayOfWeek = startOfWeek.getDay();
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // If Sunday, go back 6 days, else go back to Monday
+  startOfWeek.setDate(startOfWeek.getDate() - daysToMonday);
+  startOfWeek.setHours(0, 0, 0, 0);
+  const weekStr = startOfWeek.toISOString().split("T")[0];
   
-  const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const monthAgoStr = monthAgo.toISOString().split("T")[0];
+  // Start of this month
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  startOfMonth.setHours(0, 0, 0, 0);
+  const monthStr = startOfMonth.toISOString().split("T")[0];
   
+  // Last 6 months (180 days back)
   const sixMonthsAgo = new Date(today.getTime() - 180 * 24 * 60 * 60 * 1000);
-  const sixMonthsAgoStr = sixMonthsAgo.toISOString().split("T")[0];
+  sixMonthsAgo.setHours(0, 0, 0, 0);
+  const sixMonthsStr = sixMonthsAgo.toISOString().split("T")[0];
   
-  const yearAgo = new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000);
-  const yearAgoStr = yearAgo.toISOString().split("T")[0];
+  // Start of this year
+  const startOfYear = new Date(today.getFullYear(), 0, 1);
+  startOfYear.setHours(0, 0, 0, 0);
+  const yearStr = startOfYear.toISOString().split("T")[0];
+
+  console.log('Date ranges:');
+  console.log('- Today:', todayStr);
+  console.log('- Week start (Monday):', weekStr);
+  console.log('- Month start:', monthStr);
+  console.log('- 6 months ago:', sixMonthsStr);
+  console.log('- Year start:', yearStr);
 
   // Parse data rows (skip header row, start from line 1)
   for (let i = 1; i < lines.length; i++) {
@@ -326,6 +351,7 @@ function parseSheetData(csvText: string): SalesEmployee[] {
         id: `${name}-${branch}`.replace(/\s+/g, "-").toLowerCase(),
         name,
         branch,
+        date: parsedDate.toISOString().split("T")[0], // Last payment date
         today: 0,
         week: 0,
         month: 0,
@@ -334,30 +360,55 @@ function parseSheetData(csvText: string): SalesEmployee[] {
         amount6mln: 0,
         invoice: 0,
         invoice3000: 0,
+        todayBreakdown: { amount6mln: 0, invoice: 0, invoice3000: 0 },
+        weekBreakdown: { amount6mln: 0, invoice: 0, invoice3000: 0 },
+        monthBreakdown: { amount6mln: 0, invoice: 0, invoice3000: 0 },
+        sixMonthsBreakdown: { amount6mln: 0, invoice: 0, invoice3000: 0 },
+        yearBreakdown: { amount6mln: 0, invoice: 0, invoice3000: 0 },
       });
     }
 
     const employee = employeeMap.get(key)!;
     const dateForComparison = parsedDate.toISOString().split("T")[0];
 
+    // Update to latest payment date
+    if (dateForComparison > employee.date) {
+      employee.date = dateForComparison;
+    }
+
     // Aggregate based on date ranges
     if (dateForComparison === todayStr) {
       employee.today += saleAmount;
+      employee.todayBreakdown.amount6mln += amount6mln;
+      employee.todayBreakdown.invoice += invoice;
+      employee.todayBreakdown.invoice3000 += invoice3000;
     }
-    if (dateForComparison >= weekAgoStr) {
+    if (dateForComparison >= weekStr) {
       employee.week += saleAmount;
+      employee.weekBreakdown.amount6mln += amount6mln;
+      employee.weekBreakdown.invoice += invoice;
+      employee.weekBreakdown.invoice3000 += invoice3000;
     }
-    if (dateForComparison >= monthAgoStr) {
+    if (dateForComparison >= monthStr) {
       employee.month += saleAmount;
+      employee.monthBreakdown.amount6mln += amount6mln;
+      employee.monthBreakdown.invoice += invoice;
+      employee.monthBreakdown.invoice3000 += invoice3000;
     }
-    if (dateForComparison >= sixMonthsAgoStr) {
+    if (dateForComparison >= sixMonthsStr) {
       employee.sixMonths += saleAmount;
+      employee.sixMonthsBreakdown.amount6mln += amount6mln;
+      employee.sixMonthsBreakdown.invoice += invoice;
+      employee.sixMonthsBreakdown.invoice3000 += invoice3000;
     }
-    if (dateForComparison >= yearAgoStr) {
+    if (dateForComparison >= yearStr) {
       employee.year += saleAmount;
+      employee.yearBreakdown.amount6mln += amount6mln;
+      employee.yearBreakdown.invoice += invoice;
+      employee.yearBreakdown.invoice3000 += invoice3000;
     }
 
-    // Also aggregate the new fields
+    // Also aggregate the total fields (for all time)
     employee.amount6mln += amount6mln;
     employee.invoice += invoice;
     employee.invoice3000 += invoice3000;
@@ -447,7 +498,6 @@ function parseDate(dateStr: string): Date | null {
   if (match) {
     const [, part1, part2, year] = match;
     const p1 = parseInt(part1, 10);
-    const p2 = parseInt(part2, 10);
 
     // If first part > 12, it must be day (DD/MM/YYYY)
     if (p1 > 12) {

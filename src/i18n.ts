@@ -9,8 +9,8 @@
 export const uzbekTranslations = {
   // Header & Navigation
   performanceHub: "ХОДИМ Фаолияти",
-  salesPerformance: "Сотув Фаолияти",
-  realtimeRankings: "Ходимларнинг рейтинги, қаршилашувчи тахлил ва фаолиятнинг метрикаси бир назарда",
+  salesPerformance: "StudyTokyo сотув бўлими.",
+  realtimeRankings: "Ходимлар рейтинги, белгиланган давр оралиғида 6млн ва invoice кесимида.",
   refresh: "Янгилаш",
   
   // Time Period Filters
