@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { TrendingUp, Award, Users, DollarSign, ChevronDown, RefreshCw, Calendar, Download } from "lucide-react";
-import { fetchGoogleSheetData, SalesEmployee } from "./api/googleSheets";
+import { Award, Users, DollarSign, ChevronDown, RefreshCw, Calendar, Download } from "lucide-react";
+import { fetchGoogleSheetData, SalesEmployee, fetchBranchManagers } from "./api/googleSheets";
 import { uzbekTranslations } from "./i18n";
 import { exportToCSV, exportToJSON } from "./utils/exportData";
 // Import logo - add your logo file to src/assets/logo.png
@@ -22,6 +22,7 @@ const timeframes: TimeFrame[] = [
 
 function App() {
   const [salesData, setSalesData] = useState<SalesEmployee[]>([]);
+  const [branchManagers, setBranchManagers] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedTimeframe, setSelectedTimeframe] = useState<"today" | "week" | "month" | "sixMonths" | "year" | "custom">("month");
@@ -40,8 +41,13 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchGoogleSheetData();
+      // Load both sales data and branch managers in parallel
+      const [data, managers] = await Promise.all([
+        fetchGoogleSheetData(),
+        fetchBranchManagers()
+      ]);
       setSalesData(data);
+      setBranchManagers(managers);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Маълумотлар юклаш мажбур бўлди");
       console.error("Error loading data:", err);
@@ -50,8 +56,11 @@ function App() {
     }
   };
 
-  // Get unique branches
-  const branches = ["Барча Филиаллар", ...Array.from(new Set(salesData.map((emp) => emp.branch)))];
+  // Get unique branches - combine from sales data and branch managers list
+  const branchesFromSales = new Set(salesData.map((emp) => emp.branch));
+  const branchesFromManagers = new Set(branchManagers.keys());
+  const allBranches = new Set([...branchesFromSales, ...branchesFromManagers]);
+  const branches = ["Барча Филиаллар", ...Array.from(allBranches).sort()];
 
   // Filter data by branch
   const filteredData = selectedBranch === "Барча Филиаллар" 
@@ -128,12 +137,6 @@ function App() {
   // - "Bugungi $500" (500 сўм)
   // - "6 MLN to'lovlar" (6 миллион сўм)
   // saleAmount = contracts + payment6mln + invoice3000 + invoice1400 + invoice900 + invoice500
-  let totalSales = 0;
-  if (selectedTimeframe === "custom") {
-    totalSales = sortedData.reduce((sum, emp) => sum + getCustomRangeSales(emp), 0);
-  } else {
-    totalSales = sortedData.reduce((sum, emp) => sum + emp[selectedTimeframe], 0);
-  }
   const activeEmployees = sortedData.length;
   
   // Calculate totals by sales type for selected timeframe
@@ -186,9 +189,11 @@ function App() {
   });
   
   // Find top branch
-  let topBranch: { branch: string; total: number; topEmployee: SalesEmployee | null } | null = null;
+  let topBranch: { branch: string; total: number; topEmployee: SalesEmployee } | null = null;
   
   branchSales.forEach((data, branch) => {
+    if (data.employees.length === 0) return;
+    
     if (!topBranch || data.total > topBranch.total) {
       // Find top employee in this branch
       const topEmployee = data.employees.reduce((top, current) => {
@@ -208,6 +213,12 @@ function App() {
       };
     }
   });
+
+  // Store topBranch info for rendering
+  const topBranchInfo: { branch: string; managerName: string } | null = topBranch !== null ? {
+    branch: (topBranch as { branch: string; total: number; topEmployee: SalesEmployee }).branch,
+    managerName: branchManagers.get((topBranch as { branch: string; total: number; topEmployee: SalesEmployee }).branch) || "Маълумот йўқ"
+  } : null;
 
   // Format currency (showing just the number without $ symbol)
   // Манба: Google Sheets CSV файлидан парс қилинган рақамлар
@@ -419,29 +430,56 @@ function App() {
           </div>
         )}
 
-        {/* Top Branch Section */}
-        {topBranch && topBranch.topEmployee && (
-          <div className="mb-10 bg-gradient-to-br from-emerald-900/30 via-teal-900/20 to-slate-900/30 border-2 border-emerald-500/40 rounded-2xl p-8 lg:p-10 backdrop-blur-sm hover:border-emerald-500/60 transition-all duration-300">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
-                <Award className="w-6 h-6 text-white" />
+        {/* Top Performers Section */}
+        <div className="grid md:grid-cols-2 gap-6 mb-10">
+          {/* Top Employee Card */}
+          {sortedData.length > 0 && (
+            <div className="bg-gradient-to-br from-blue-900/30 via-indigo-900/20 to-slate-900/30 border-2 border-blue-500/40 rounded-2xl p-8 backdrop-blur-sm hover:border-blue-500/60 transition-all duration-300">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center">
+                  <Award className="w-6 h-6 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent">
+                  Энг кўп сотув қилган ходим
+                </h2>
               </div>
-              <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
-                Энг яхши филиал
-              </h2>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">Исми:</p>
+                  <p className="text-3xl font-bold text-white">{sortedData[0].name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">Филиал:</p>
+                  <p className="text-2xl font-bold text-blue-400">{sortedData[0].branch}</p>
+                </div>
+              </div>
             </div>
-            <div className="grid md:grid-cols-2 gap-8">
-              <div>
-                <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">Филиал:</p>
-                <p className="text-4xl font-bold text-emerald-400">{topBranch.branch}</p>
+          )}
+
+          {/* Top Branch Card */}
+          {topBranchInfo && (
+            <div className="bg-gradient-to-br from-emerald-900/30 via-teal-900/20 to-slate-900/30 border-2 border-emerald-500/40 rounded-2xl p-8 backdrop-blur-sm hover:border-emerald-500/60 transition-all duration-300">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center">
+                  <Award className="w-6 h-6 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent">
+                  Энг кўп сотув қилган филиал
+                </h2>
               </div>
-              <div>
-                <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">Менеджер:</p>
-                <p className="text-4xl font-bold text-white">{topBranch.topEmployee.name}</p>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">Филиал:</p>
+                  <p className="text-3xl font-bold text-emerald-400">{topBranchInfo.branch}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-400 mb-2 uppercase tracking-wider font-semibold">РОП (Менеджер):</p>
+                  <p className="text-2xl font-bold text-white">{topBranchInfo.managerName}</p>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* KPI Cards */}
         <div className="grid md:grid-cols-2 gap-6 mb-10">
@@ -501,7 +539,6 @@ function App() {
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.rank}</th>
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.name}</th>
                   <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">{uzbekTranslations.branch}</th>
-                  <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Тўлов санаси</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">6млн</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Инвоис</th>
                   <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">$3000</th>
@@ -510,7 +547,7 @@ function App() {
               <tbody>
                 {sortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-8 py-8 text-center text-slate-400">
+                    <td colSpan={6} className="px-8 py-8 text-center text-slate-400">
                       {uzbekTranslations.noData}
                     </td>
                   </tr>
@@ -519,15 +556,6 @@ function App() {
                     const isTopPerformer = index === 0;
                     const isTopThree = index < 3;
                     
-                    // Format date as DD.MM.YYYY
-                    const formatDate = (dateStr: string) => {
-                      const date = new Date(dateStr);
-                      const day = String(date.getDate()).padStart(2, '0');
-                      const month = String(date.getMonth() + 1).padStart(2, '0');
-                      const year = date.getFullYear();
-                      return `${day}.${month}.${year}`;
-                    };
-
                     // Get breakdown for selected timeframe
                     const getBreakdown = () => {
                       if (selectedTimeframe === "custom") {
@@ -577,9 +605,6 @@ function App() {
                         </td>
                         <td className="px-8 py-5">
                           <p className="text-slate-400">{employee.branch}</p>
-                        </td>
-                        <td className="px-8 py-5">
-                          <p className="text-slate-300">{formatDate(employee.date)}</p>
                         </td>
                         <td className="px-8 py-5 text-right">
                           <p className="font-semibold text-emerald-400 text-base">

@@ -28,13 +28,21 @@ export interface SalesEmployee {
   yearBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
 }
 
+export interface BranchManager {
+  filial: string; // Название филиала
+  rop: string;    // ROP (менеджер филиала)
+}
+
 // Single Google Sheet source
 const SHEET_ID = "10opxikq7eMlBTvlByRe2nwgGqYf-Xj6HYjg7cUdBQM4";
 const SHEET_GID = "2019879851";
+const BRANCH_MANAGERS_GID = "1278453508"; // GID для листа с филиалами и менеджерами
 
 // Cache the data
 let cachedData: SalesEmployee[] | null = null;
 let lastFetchTime = 0;
+let cachedBranchManagers: Map<string, string> | null = null;
+let lastBranchManagersFetchTime = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -512,5 +520,75 @@ function parseDate(dateStr: string): Date | null {
     return isNaN(parsed.getTime()) ? null : parsed;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Fetch branch managers data from Google Sheets
+ * Returns a Map of branch name -> manager name (ROP)
+ */
+export async function fetchBranchManagers(): Promise<Map<string, string>> {
+  // Return cached data if still valid
+  const now = Date.now();
+  if (cachedBranchManagers && now - lastBranchManagersFetchTime < CACHE_DURATION) {
+    return cachedBranchManagers;
+  }
+
+  try {
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${BRANCH_MANAGERS_GID}`;
+    console.log(`Fetching branch managers from ${sheetUrl}`);
+    
+    let csvText: string | null = null;
+    
+    try {
+      const response = await fetch(sheetUrl);
+      if (response.ok) {
+        csvText = await response.text();
+      } else {
+        // Try alternative URL format
+        const altUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/pub?output=csv&gid=${BRANCH_MANAGERS_GID}`;
+        const altResponse = await fetch(altUrl);
+        if (altResponse.ok) {
+          csvText = await altResponse.text();
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching branch managers:", err);
+    }
+
+    if (!csvText) {
+      console.warn("Could not fetch branch managers data, returning empty map");
+      return new Map();
+    }
+
+    // Parse CSV
+    const lines = csvText.trim().split("\n");
+    const branchManagerMap = new Map<string, string>();
+
+    // Skip header row (index 0) and parse data rows
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const fields = parseCSVLine(line);
+      if (fields.length < 2) continue;
+
+      const filial = fields[0]?.trim() || "";
+      const rop = fields[1]?.trim() || "";
+
+      if (filial && rop) {
+        branchManagerMap.set(filial, rop);
+        console.log(`Branch manager: ${filial} -> ${rop}`);
+      }
+    }
+
+    cachedBranchManagers = branchManagerMap;
+    lastBranchManagersFetchTime = now;
+    
+    console.log(`Loaded ${branchManagerMap.size} branch managers`);
+    return branchManagerMap;
+  } catch (error) {
+    console.error("Error fetching branch managers:", error);
+    return new Map();
   }
 }
