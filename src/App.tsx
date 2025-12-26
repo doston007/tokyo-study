@@ -131,7 +131,7 @@ function App() {
   
   // Find top branch based on selected timeframe
   // Group employees by branch and calculate total sales per branch
-  const branchSales = new Map<string, { total: number; employees: SalesEmployee[] }>();
+  const branchSales = new Map<string, { total: number; employees: SalesEmployee[]; amount6mln: number; invoice: number; invoice3000: number }>();
   
   sortedData.forEach((emp) => {
     const sales = selectedTimeframe === "custom" 
@@ -139,12 +139,28 @@ function App() {
       : emp[selectedTimeframe];
     
     if (!branchSales.has(emp.branch)) {
-      branchSales.set(emp.branch, { total: 0, employees: [] });
+      branchSales.set(emp.branch, { total: 0, employees: [], amount6mln: 0, invoice: 0, invoice3000: 0 });
     }
     
     const branchData = branchSales.get(emp.branch)!;
     branchData.total += sales;
     branchData.employees.push(emp);
+    
+    // Add breakdown data
+    if (selectedTimeframe === "custom") {
+      branchData.amount6mln += emp.amount6mln;
+      branchData.invoice += emp.invoice;
+      branchData.invoice3000 += emp.invoice3000;
+    } else {
+      const breakdownKey = `${selectedTimeframe}Breakdown` as keyof typeof emp;
+      const breakdown = emp[breakdownKey];
+      if (breakdown && typeof breakdown === 'object' && 'amount6mln' in breakdown) {
+        const bd = breakdown as { amount6mln: number; invoice: number; invoice3000: number };
+        branchData.amount6mln += bd.amount6mln;
+        branchData.invoice += bd.invoice;
+        branchData.invoice3000 += bd.invoice3000;
+      }
+    }
   });
   
   // Find top branch
@@ -178,6 +194,25 @@ function App() {
     branch: (topBranch as { branch: string; total: number; topEmployee: SalesEmployee }).branch,
     managerName: branchManagers.get((topBranch as { branch: string; total: number; topEmployee: SalesEmployee }).branch) || "Маълумот йўқ"
   } : null;
+
+  // Create branch rankings array sorted by invoice (descending), then by amount6mln
+  const branchRankings = Array.from(branchSales.entries())
+    .map(([branch, data]) => ({
+      branch,
+      manager: branchManagers.get(branch) || "Маълумот йўқ",
+      amount6mln: data.amount6mln,
+      invoice: data.invoice,
+      invoice3000: data.invoice3000,
+      total: data.total
+    }))
+    .sort((a, b) => {
+      // First sort by invoice (descending)
+      if (b.invoice !== a.invoice) {
+        return b.invoice - a.invoice;
+      }
+      // If invoice is equal, sort by 6mln (descending)
+      return b.amount6mln - a.amount6mln;
+    });
 
   // Format currency (showing just the number without $ symbol)
   // Манба: Google Sheets CSV файлидан парс қилинган рақамлар
@@ -454,6 +489,81 @@ function App() {
             <p className="text-sm text-slate-500">
               {selectedBranch === "Барча Филиаллар" ? uzbekTranslations.inAllBranches : uzbekTranslations.branch + ": " + selectedBranch}
             </p>
+          </div>
+        </div>
+
+        {/* Branch Rankings Table */}
+        <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-2xl overflow-hidden shadow-2xl mb-10">
+          <div className="px-8 py-6 border-b border-slate-700 bg-gradient-to-r from-slate-800/50 to-slate-900/50">
+            <h2 className="text-2xl font-bold text-white">Филиаллар Рейтинги</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-slate-900/50 border-b border-slate-700">
+                  <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Ранг</th>
+                  <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Филиал</th>
+                  <th className="px-8 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Менеджер</th>
+                  <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">6млн</th>
+                  <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Инвоис</th>
+                  <th className="px-8 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">$3000</th>
+                </tr>
+              </thead>
+              <tbody>
+                {branchRankings.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-8 py-8 text-center text-slate-400">
+                      {uzbekTranslations.noData}
+                    </td>
+                  </tr>
+                ) : (
+                  branchRankings.map((branchData, index) => {
+                    const isTopPerformer = index === 0;
+                    const isTopThree = index < 3;
+
+                    return (
+                      <tr
+                        key={branchData.branch}
+                        className={`border-b border-slate-700 transition-all duration-200 ${
+                          isTopPerformer
+                            ? "bg-emerald-900/20 hover:bg-emerald-900/30"
+                            : isTopThree
+                            ? "bg-slate-800/30 hover:bg-slate-800/50"
+                            : "hover:bg-slate-800/30"
+                        }`}
+                      >
+                        <td className="px-8 py-5">
+                          <span className="text-2xl font-bold">
+                            {isTopPerformer ? "🥇" : isTopThree ? (index === 1 ? "🥈" : "🥉") : <span className="text-slate-500 text-lg font-semibold">{index + 1}</span>}
+                          </span>
+                        </td>
+                        <td className="px-8 py-5">
+                          <p className="font-bold text-white text-lg">{branchData.branch}</p>
+                        </td>
+                        <td className="px-8 py-5">
+                          <p className="text-slate-300">{branchData.manager}</p>
+                        </td>
+                        <td className="px-8 py-5 text-right">
+                          <p className="font-semibold text-emerald-400 text-base">
+                            {formatCurrency(branchData.amount6mln)}
+                          </p>
+                        </td>
+                        <td className="px-8 py-5 text-right">
+                          <p className="font-semibold text-blue-400 text-base">
+                            {formatCurrency(branchData.invoice)}
+                          </p>
+                        </td>
+                        <td className="px-8 py-5 text-right">
+                          <p className="font-semibold text-purple-400 text-base">
+                            {formatCurrency(branchData.invoice3000)}
+                          </p>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
