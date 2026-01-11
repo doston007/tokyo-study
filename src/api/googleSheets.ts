@@ -7,11 +7,19 @@ export interface RawSheetRow {
   [key: string]: string | number;
 }
 
+export interface Transaction {
+  date: string; // Payment date (YYYY-MM-DD)
+  saleAmount: number; // Total sale amount
+  amount6mln: number; // Number of 6mln contracts
+  invoice: number; // Invoice amount
+  invoice3000: number; // $3000 invoice amount
+}
+
 export interface SalesEmployee {
   id: string;
   name: string;
   branch: string;
-  date: string; // To'lov sanasi (Payment date)
+  date: string; // To'lov sanasi (Payment date) - последняя дата
   today: number;
   week: number;
   month: number;
@@ -26,6 +34,8 @@ export interface SalesEmployee {
   monthBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
   sixMonthsBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
   yearBreakdown: { amount6mln: number; invoice: number; invoice3000: number };
+  // All transactions for custom date range filtering
+  transactions: Transaction[];
 }
 
 export interface BranchManager {
@@ -373,6 +383,7 @@ function parseSheetData(csvText: string): SalesEmployee[] {
         monthBreakdown: { amount6mln: 0, invoice: 0, invoice3000: 0 },
         sixMonthsBreakdown: { amount6mln: 0, invoice: 0, invoice3000: 0 },
         yearBreakdown: { amount6mln: 0, invoice: 0, invoice3000: 0 },
+        transactions: [],
       });
     }
 
@@ -383,6 +394,15 @@ function parseSheetData(csvText: string): SalesEmployee[] {
     if (dateForComparison > employee.date) {
       employee.date = dateForComparison;
     }
+
+    // Store transaction for custom date range filtering
+    employee.transactions.push({
+      date: dateForComparison,
+      saleAmount,
+      amount6mln,
+      invoice,
+      invoice3000,
+    });
 
     // Aggregate based on date ranges
     if (dateForComparison === todayStr) {

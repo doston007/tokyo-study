@@ -71,28 +71,45 @@ function App() {
     ? salesData 
     : salesData.filter((emp) => emp.branch === selectedBranch);
 
-  // Calculate custom date range sales
+  // Calculate custom date range sales using actual transaction data
   const getCustomRangeSales = (employee: SalesEmployee): number => {
-    if (!customDateStart || !customDateEnd) return 0;
+    // If dates are not fully selected, return month data as default
+    if (!customDateStart || !customDateEnd) return employee.month;
     
-    const startDate = new Date(customDateStart);
-    const endDate = new Date(customDateEnd);
-    startDate.setHours(0, 0, 0, 0);
-    endDate.setHours(23, 59, 59, 999);
+    const startDateStr = customDateStart;
+    const endDateStr = customDateEnd;
     
-    // For demo purposes, we'll use a simple calculation
-    // In a real scenario, you'd need to fetch and filter by actual dates
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Filter transactions within the date range and sum up sales
+    const salesInRange = employee.transactions
+      .filter(t => t.date >= startDateStr && t.date <= endDateStr)
+      .reduce((sum, t) => sum + t.saleAmount, 0);
     
-    if (startDate <= today && endDate >= today) {
-      return employee.today;
+    return salesInRange;
+  };
+
+  // Get custom range breakdown (amount6mln, invoice, invoice3000)
+  const getCustomRangeBreakdown = (employee: SalesEmployee): { amount6mln: number; invoice: number; invoice3000: number } => {
+    // If dates are not fully selected, return month breakdown as default
+    if (!customDateStart || !customDateEnd) {
+      return employee.monthBreakdown;
     }
     
-    // If range is within a month, estimate from monthly average
-    const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-    const monthlyAvg = employee.month / 30;
-    return Math.round(monthlyAvg * daysDiff);
+    const startDateStr = customDateStart;
+    const endDateStr = customDateEnd;
+    
+    // Filter transactions within the date range and sum up breakdown values
+    const breakdown = employee.transactions
+      .filter(t => t.date >= startDateStr && t.date <= endDateStr)
+      .reduce(
+        (acc, t) => ({
+          amount6mln: acc.amount6mln + t.amount6mln,
+          invoice: acc.invoice + t.invoice,
+          invoice3000: acc.invoice3000 + t.invoice3000,
+        }),
+        { amount6mln: 0, invoice: 0, invoice3000: 0 }
+      );
+    
+    return breakdown;
   };
 
   // Filter by timeframe - only show employees with sales in selected period
@@ -108,14 +125,14 @@ function App() {
     // Get breakdown for selected timeframe
     const getBreakdownForSort = (emp: SalesEmployee) => {
       if (selectedTimeframe === "custom") {
-        return { invoice: emp.invoice, amount6mln: emp.amount6mln };
+        return getCustomRangeBreakdown(emp);
       }
       const breakdownKey = `${selectedTimeframe}Breakdown` as keyof typeof emp;
       const breakdown = emp[breakdownKey];
       if (breakdown && typeof breakdown === 'object' && 'invoice' in breakdown) {
         return breakdown as { amount6mln: number; invoice: number; invoice3000: number };
       }
-      return { invoice: emp.invoice, amount6mln: emp.amount6mln };
+      return emp.monthBreakdown;
     };
     
     const aBreakdown = getBreakdownForSort(a);
@@ -152,9 +169,10 @@ function App() {
     
     // Add breakdown data
     if (selectedTimeframe === "custom") {
-      branchData.amount6mln += emp.amount6mln;
-      branchData.invoice += emp.invoice;
-      branchData.invoice3000 += emp.invoice3000;
+      const breakdown = getCustomRangeBreakdown(emp);
+      branchData.amount6mln += breakdown.amount6mln;
+      branchData.invoice += breakdown.invoice;
+      branchData.invoice3000 += breakdown.invoice3000;
     } else {
       const breakdownKey = `${selectedTimeframe}Breakdown` as keyof typeof emp;
       const breakdown = emp[breakdownKey];
@@ -420,10 +438,16 @@ function App() {
                 />
               </div>
             </div>
-            {customDateStart && customDateEnd && (
+            {customDateStart && customDateEnd ? (
               <div className="mt-6 p-4 bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-500/40 rounded-lg">
                 <p className="text-sm text-emerald-800 dark:text-emerald-200">
                   📊 Сотув маълумотлари: <span className="font-semibold">{customDateStart}</span> дан <span className="font-semibold">{customDateEnd}</span> гача кўрсатилмоқда
+                </p>
+              </div>
+            ) : (
+              <div className="mt-6 p-4 bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-500/40 rounded-lg">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  ℹ️ Вақт оралиғини танланг. Танланмаганда, жорий ой маълумотлари кўрсатилади.
                 </p>
               </div>
             )}
@@ -605,12 +629,7 @@ function App() {
                     // Get breakdown for selected timeframe
                     const getBreakdown = () => {
                       if (selectedTimeframe === "custom") {
-                        // For custom range, use all-time values (approximation)
-                        return {
-                          amount6mln: employee.amount6mln,
-                          invoice: employee.invoice,
-                          invoice3000: employee.invoice3000
-                        };
+                        return getCustomRangeBreakdown(employee);
                       }
                       
                       const breakdownKey = `${selectedTimeframe}Breakdown` as keyof typeof employee;
@@ -620,12 +639,8 @@ function App() {
                         return breakdown as { amount6mln: number; invoice: number; invoice3000: number };
                       }
                       
-                      // Fallback to all-time values
-                      return {
-                        amount6mln: employee.amount6mln,
-                        invoice: employee.invoice,
-                        invoice3000: employee.invoice3000
-                      };
+                      // Fallback to month breakdown
+                      return employee.monthBreakdown;
                     };
                     
                     const breakdown = getBreakdown();
