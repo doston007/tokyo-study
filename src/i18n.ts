@@ -14,7 +14,7 @@ export const uzbekTranslations = {
   refresh: "Янгилаш",
   
   // Time Period Filters
-  timePeriod: "Вақт Доирасі",
+  timePeriod: "Вақт Доираси",
   today: "Бугун",
   thisWeek: "Ушбу Ҳафта",
   thisMonth: "Ушбу Ой",
