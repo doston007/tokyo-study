@@ -55,7 +55,7 @@ export const uzbekTranslations = {
   
   // Footer
   lastUpdated: "Охирги янгилаш",
-  dataSyncedFrom: "Google Sheet дан автоматик синхронизирланган маълумотлар. Охирги янгиланиш учун Янгилаш тугмасини босинг.",
+  dataSyncedFrom: "Google Sheet дан автоматик синхронланган маълумотлар. Охирги янгиланиш учун Янгилаш тугмасини босинг.",
   
   // Status Values
   statusActive: "фаол",
@@ -72,7 +72,7 @@ export const uzbekTranslations = {
   unableFetchSheets: "Google Sheets маълумотларини юкла олмадим. Юклаш мажбур қилди",
   noteSheetPublic: "Эслатма: Сизнинг Google Sheet ишчи қаташи публик бўлиши керак ёки CORS чегаралашларини бўлиб ўтиш учун Youware Backend интеграциясини ўрнатишиңиз керак.",
   tryAgain: "Қайтадан Уриниш",
-  noData: "Танланган сўзгичлар uchun маълумотлар йўқ",
+  noData: "Танланган даврда маълумотлар йўқ",
   
   // Number formatting (removed $ symbol as requested)
   // Рақамлар Google Sheets дан қўйидаги устунлардан ўқиляди:
